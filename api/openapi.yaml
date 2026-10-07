@@ -1,0 +1,2146 @@
+openapi: 3.1.0
+info:
+  title: Warehouse API
+  version: 1.0.0
+  summary: Gestione prodotti, lotti, giacenze, movimentazioni e ordini di un magazzino merci.
+  description: |
+    Contratto dell'API di magazzino definito dalla specifica 007 (`specs/2026-10-07-007-api-gestione-magazzino.md`).
+
+    **Convenzioni**
+    - Prefisso: `/api/v1`. Campi in `snake_case`, enum e codici d'errore in `UPPER_SNAKE`.
+    - Le quantità sono numeri decimali (fino a 3 decimali). Per i prodotti tracciati a seriale sono intere.
+    - Errori: RFC 9457 `application/problem+json` con `code` applicativo stabile (catalogo in `api/errors.md`).
+    - Le richieste di scrittura richiedono l'header `X-Operator` (nessuna autenticazione: spec 007, punti aperti).
+    - Le POST di operazioni e ordini accettano `Idempotency-Key`.
+    - PATCH di magazzini, ubicazioni e prodotti: `ETag` e `If-Match` per la concorrenza ottimistica.
+    - Liste paginate: `page` (da 1), `page_size` (default 50, massimo 200).
+
+    **Disponibilità** (per prodotto e magazzino)
+    `available = physical − unusable − reserved`, dove `unusable` è la quantità nei lotti scaduti o bloccati
+    e `reserved` è la somma degli impegni aperti degli ordini di vendita (impegno soft, per prodotto).
+servers:
+  - url: /api/v1
+# Nessuna autenticazione per ora (spec 007, punti aperti): l'operatore arriva in X-Operator.
+security: []
+tags:
+  - name: Warehouses
+    description: Magazzini, zone e ubicazioni (mappa del magazzino).
+  - name: Products
+    description: Anagrafica prodotti e disponibilità.
+  - name: Lots
+    description: Lotti e seriali, tracciabilità.
+  - name: Stock
+    description: Giacenze per ubicazione.
+  - name: Operations
+    description: Carico, suggerimento di prelievo, scarico, trasferimento, rettifica.
+  - name: Movements
+    description: Storico immutabile delle movimentazioni.
+  - name: Sales orders
+    description: Ordini cliente, prenotazione ed evasione.
+  - name: Purchase orders
+    description: Ordini fornitore, riferimento per i carichi.
+  - name: Alerts
+    description: Sotto-scorta, scadenze, impegni a rischio.
+
+paths:
+  # ---------------------------------------------------------------- Warehouses
+  /warehouses:
+    get:
+      tags: [Warehouses]
+      operationId: listWarehouses
+      summary: Elenco magazzini
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - { name: active, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Pagina di magazzini
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WarehousePage' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+    post:
+      tags: [Warehouses]
+      operationId: createWarehouse
+      summary: Crea un magazzino
+      parameters: [{ $ref: '#/components/parameters/Operator' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WarehouseCreate' }
+      responses:
+        '201':
+          description: Creato
+          headers: { ETag: { $ref: '#/components/headers/ETag' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Warehouse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /warehouses/{warehouseId}:
+    parameters: [{ $ref: '#/components/parameters/WarehouseId' }]
+    get:
+      tags: [Warehouses]
+      operationId: getWarehouse
+      summary: Dettaglio magazzino
+      responses:
+        '200':
+          description: Magazzino
+          headers: { ETag: { $ref: '#/components/headers/ETag' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Warehouse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Warehouses]
+      operationId: updateWarehouse
+      summary: Modifica un magazzino
+      parameters:
+        - $ref: '#/components/parameters/Operator'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WarehouseUpdate' }
+      responses:
+        '200':
+          description: Aggiornato
+          headers: { ETag: { $ref: '#/components/headers/ETag' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Warehouse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /warehouses/{warehouseId}/zones:
+    parameters: [{ $ref: '#/components/parameters/WarehouseId' }]
+    get:
+      tags: [Warehouses]
+      operationId: listZones
+      summary: Zone di un magazzino
+      responses:
+        '200':
+          description: Zone
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Zone' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Warehouses]
+      operationId: createZone
+      summary: Crea una zona
+      parameters: [{ $ref: '#/components/parameters/Operator' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ZoneCreate' }
+      responses:
+        '201':
+          description: Creata
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Zone' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /zones/{zoneId}:
+    parameters:
+      - { name: zoneId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Warehouses]
+      operationId: updateZone
+      summary: Modifica una zona
+      parameters: [{ $ref: '#/components/parameters/Operator' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ZoneUpdate' }
+      responses:
+        '200':
+          description: Aggiornata
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Zone' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /warehouses/{warehouseId}/locations:
+    parameters: [{ $ref: '#/components/parameters/WarehouseId' }]
+    get:
+      tags: [Warehouses]
+      operationId: listLocations
+      summary: Ubicazioni di un magazzino, con occupazione
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - { name: zone_id, in: query, schema: { type: string, format: uuid } }
+        - { name: storage_type, in: query, schema: { $ref: '#/components/schemas/StorageType' } }
+        - { name: active, in: query, schema: { type: boolean } }
+        - name: has_capacity
+          in: query
+          description: Solo ubicazioni non piene (peso e volume sotto il massimo).
+          schema: { type: boolean }
+        - { name: q, in: query, description: Ricerca per codice ubicazione, schema: { type: string } }
+      responses:
+        '200':
+          description: Pagina di ubicazioni
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LocationPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+    post:
+      tags: [Warehouses]
+      operationId: createLocation
+      summary: Crea un'ubicazione
+      parameters: [{ $ref: '#/components/parameters/Operator' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LocationCreate' }
+      responses:
+        '201':
+          description: Creata
+          headers: { ETag: { $ref: '#/components/headers/ETag' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Location' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /locations/{locationId}:
+    parameters: [{ $ref: '#/components/parameters/LocationId' }]
+    get:
+      tags: [Warehouses]
+      operationId: getLocation
+      summary: Dettaglio ubicazione
+      responses:
+        '200':
+          description: Ubicazione
+          headers: { ETag: { $ref: '#/components/headers/ETag' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Location' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Warehouses]
+      operationId: updateLocation
+      summary: Modifica un'ubicazione
+      description: |
+        Una nuova capienza inferiore all'occupazione attuale è rifiutata con `LOCATION_CAPACITY_EXCEEDED`.
+        Un'ubicazione con giacenza non può essere disattivata (`LOCATION_NOT_EMPTY`).
+      parameters:
+        - $ref: '#/components/parameters/Operator'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LocationUpdate' }
+      responses:
+        '200':
+          description: Aggiornata
+          headers: { ETag: { $ref: '#/components/headers/ETag' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Location' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /locations/{locationId}/stock:
+    parameters: [{ $ref: '#/components/parameters/LocationId' }]
+    get:
+      tags: [Warehouses]
+      operationId: getLocationStock
+      summary: Contenuto dell'ubicazione (prodotti, lotti, seriali) e occupazione
+      responses:
+        '200':
+          description: Contenuto
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LocationContent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Products
+  /products:
+    get:
+      tags: [Products]
+      operationId: listProducts
+      summary: Ricerca e filtro prodotti
+      description: |
+        I totali di giacenza in ogni elemento si riferiscono al magazzino indicato in `warehouse_id`,
+        oppure alla somma di tutti i magazzini.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - { name: q, in: query, description: 'Ricerca su SKU, EAN e nome', schema: { type: string } }
+        - { name: category, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ProductStatus' } }
+        - { name: tracking, in: query, schema: { $ref: '#/components/schemas/Tracking' } }
+        - { name: warehouse_id, in: query, schema: { type: string, format: uuid } }
+        - name: below_min_stock
+          in: query
+          description: Solo prodotti con disponibile sotto la scorta minima.
+          schema: { type: boolean }
+        - name: expiring_within_days
+          in: query
+          description: Solo prodotti con lotti in giacenza che scadono entro N giorni (non ancora scaduti).
+          schema: { type: integer, minimum: 0 }
+        - name: sort
+          in: query
+          description: Campo di ordinamento; il prefisso `-` indica ordine decrescente.
+          schema:
+            type: string
+            enum: [sku, -sku, name, -name, category, -category, created_at, -created_at, available, -available]
+            default: sku
+      responses:
+        '200':
+          description: Pagina di prodotti
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductPage' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+    post:
+      tags: [Products]
+      operationId: createProduct
+      summary: Crea un prodotto
+      parameters: [{ $ref: '#/components/parameters/Operator' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductCreate' }
+      responses:
+        '201':
+          description: Creato
+          headers: { ETag: { $ref: '#/components/headers/ETag' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /products/{productId}:
+    parameters: [{ $ref: '#/components/parameters/ProductId' }]
+    get:
+      tags: [Products]
+      operationId: getProduct
+      summary: Dettaglio prodotto
+      responses:
+        '200':
+          description: Prodotto
+          headers: { ETag: { $ref: '#/components/headers/ETag' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Products]
+      operationId: updateProduct
+      summary: Modifica un prodotto
+      description: SKU, `tracking` e `requires_expiry` non sono modificabili. Lo stato si cambia con archive/reactivate.
+      parameters:
+        - $ref: '#/components/parameters/Operator'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductUpdate' }
+      responses:
+        '200':
+          description: Aggiornato
+          headers: { ETag: { $ref: '#/components/headers/ETag' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /products/{productId}/archive:
+    parameters: [{ $ref: '#/components/parameters/ProductId' }]
+    post:
+      tags: [Products]
+      operationId: archiveProduct
+      summary: Archivia (disattiva) un prodotto
+      description: Rifiutato con `PRODUCT_HAS_STOCK` se il prodotto ha giacenza fisica o impegni aperti.
+      parameters: [{ $ref: '#/components/parameters/Operator' }]
+      responses:
+        '200':
+          description: Archiviato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /products/{productId}/reactivate:
+    parameters: [{ $ref: '#/components/parameters/ProductId' }]
+    post:
+      tags: [Products]
+      operationId: reactivateProduct
+      summary: Riattiva un prodotto archiviato
+      parameters: [{ $ref: '#/components/parameters/Operator' }]
+      responses:
+        '200':
+          description: Riattivato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /products/{productId}/availability:
+    parameters: [{ $ref: '#/components/parameters/ProductId' }]
+    get:
+      tags: [Products]
+      operationId: getProductAvailability
+      summary: Disponibilità del prodotto per magazzino, con alert
+      responses:
+        '200':
+          description: Disponibilità
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductAvailability' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /products/{productId}/lots:
+    parameters: [{ $ref: '#/components/parameters/ProductId' }]
+    get:
+      tags: [Lots]
+      operationId: listProductLots
+      summary: Lotti di un prodotto
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - { name: with_stock, in: query, description: Solo lotti con giacenza, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Pagina di lotti
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LotPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Lots]
+      operationId: createLot
+      summary: Registra in anticipo un lotto
+      parameters: [{ $ref: '#/components/parameters/Operator' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LotCreate' }
+      responses:
+        '201':
+          description: Creato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Lot' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  # ---------------------------------------------------------------- Lots & serials
+  /lots:
+    get:
+      tags: [Lots]
+      operationId: searchLots
+      summary: Ricerca avanzata lotti
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - { name: lot_code, in: query, description: 'Ricerca parziale, case-insensitive', schema: { type: string } }
+        - { name: product_id, in: query, schema: { type: string, format: uuid } }
+        - { name: warehouse_id, in: query, description: Solo lotti con giacenza nel magazzino, schema: { type: string, format: uuid } }
+        - { name: expiring_before, in: query, description: Scadenza entro questa data (inclusa), schema: { type: string, format: date } }
+        - { name: expired, in: query, schema: { type: boolean } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/LotStatus' } }
+        - { name: with_stock, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Pagina di lotti
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LotPage' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /lots/{lotId}:
+    parameters: [{ $ref: '#/components/parameters/LotId' }]
+    get:
+      tags: [Lots]
+      operationId: getLot
+      summary: Dettaglio lotto
+      responses:
+        '200':
+          description: Lotto
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Lot' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Lots]
+      operationId: updateLot
+      summary: Blocca o sblocca un lotto, corregge date
+      parameters: [{ $ref: '#/components/parameters/Operator' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LotUpdate' }
+      responses:
+        '200':
+          description: Aggiornato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Lot' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /lots/{lotId}/trace:
+    parameters: [{ $ref: '#/components/parameters/LotId' }]
+    get:
+      tags: [Lots]
+      operationId: traceLot
+      summary: Tracciabilità del lotto (ingresso, trasferimenti, spedizioni)
+      responses:
+        '200':
+          description: Storia del lotto
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LotTrace' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /serials:
+    get:
+      tags: [Lots]
+      operationId: searchSerials
+      summary: Ricerca seriali
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - { name: serial_number, in: query, description: 'Ricerca parziale, case-insensitive', schema: { type: string } }
+        - { name: product_id, in: query, schema: { type: string, format: uuid } }
+        - { name: lot_id, in: query, schema: { type: string, format: uuid } }
+        - { name: location_id, in: query, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/SerialStatus' } }
+      responses:
+        '200':
+          description: Pagina di seriali
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SerialPage' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /serials/{serialId}/trace:
+    parameters:
+      - { name: serialId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Lots]
+      operationId: traceSerial
+      summary: Tracciabilità di un seriale
+      responses:
+        '200':
+          description: Storia del seriale
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SerialTrace' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Stock
+  /stock:
+    get:
+      tags: [Stock]
+      operationId: listStock
+      summary: Giacenze per prodotto, lotto e ubicazione (mappatura dinamica)
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - { name: warehouse_id, in: query, schema: { type: string, format: uuid } }
+        - { name: zone_id, in: query, schema: { type: string, format: uuid } }
+        - { name: location_id, in: query, schema: { type: string, format: uuid } }
+        - { name: product_id, in: query, schema: { type: string, format: uuid } }
+        - { name: lot_id, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Pagina di righe di giacenza
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StockPage' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  # ---------------------------------------------------------------- Operations
+  /operations/receipts:
+    post:
+      tags: [Operations]
+      operationId: createReceipt
+      summary: Ingresso merci (carico da fornitore)
+      description: |
+        Aumenta la giacenza fisica. Per i prodotti `LOT`/`SERIAL` con `requires_expiry` il lotto è obbligatorio;
+        se il lotto è nuovo, con `requires_expiry` la scadenza è obbligatoria. Rifiutato se l'ubicazione supera la capienza.
+        Con `purchase_order_id` aggiorna le quantità ricevute dell'ordine fornitore.
+      parameters:
+        - $ref: '#/components/parameters/Operator'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReceiptRequest' }
+            examples:
+              withLotAndExpiry:
+                $ref: '#/components/examples/ReceiptWithLot'
+      responses:
+        '201':
+          description: Carico registrato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OperationResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /operations/picking-suggestions:
+    post:
+      tags: [Operations]
+      operationId: suggestPicking
+      summary: Suggerimento di prelievo FEFO/FIFO (solo calcolo, nessun effetto)
+      description: |
+        Calcola da quali ubicazioni e lotti prelevare. `AUTO` applica FEFO ai prodotti con scadenza
+        e FIFO (data di ricevimento) agli altri. Lotti scaduti o bloccati sono esclusi.
+        Indicando `sales_order_id`, le righe sono le quantità impegnate dell'ordine ancora da evadere.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PickingSuggestionRequest' }
+      responses:
+        '200':
+          description: Allocazioni suggerite
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PickingSuggestion' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /operations/shipments:
+    post:
+      tags: [Operations]
+      operationId: createShipment
+      summary: Uscita merci senza ordine (scarico)
+      description: |
+        Riduce la giacenza fisica. In modalità `AUTO` i prelievi sono calcolati come nel suggerimento;
+        in `MANUAL` vanno indicati per ogni riga (`picks`). Lo scarico non può superare la disponibilità
+        non impegnata del magazzino. Un prelievo manuale che salta un lotto a scadenza anteriore è
+        rifiutato con `FEFO_VIOLATION`, salvo `fefo_override`.
+        Per scaricare merce impegnata usare l'evasione dell'ordine di vendita.
+      parameters:
+        - $ref: '#/components/parameters/Operator'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShipmentRequest' }
+      responses:
+        '201':
+          description: Scarico registrato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OperationResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /operations/transfers:
+    post:
+      tags: [Operations]
+      operationId: createTransfer
+      summary: Trasferimento interno tra ubicazioni dello stesso magazzino
+      description: Ammesso anche per lotti scaduti o bloccati (es. verso un'area di quarantena). Soggetto al controllo di capienza.
+      parameters:
+        - $ref: '#/components/parameters/Operator'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TransferRequest' }
+      responses:
+        '201':
+          description: Trasferimento registrato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OperationResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /operations/adjustments:
+    post:
+      tags: [Operations]
+      operationId: createAdjustment
+      summary: Rettifica inventario
+      description: |
+        Il client invia la quantità contata; il sistema registra un movimento `ADJUSTMENT` con il delta
+        (`direction` = `IN` o `OUT`). Causale obbligatoria; per `OTHER` anche la nota.
+        Per i prodotti a seriale vanno indicati i seriali mancanti (delta negativo) o trovati (delta positivo).
+        Se il conteggio coincide con il sistema non viene creato alcun movimento (`movements` vuoto).
+      parameters:
+        - $ref: '#/components/parameters/Operator'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdjustmentRequest' }
+      responses:
+        '201':
+          description: Rettifica registrata
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OperationResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  # ---------------------------------------------------------------- Movements
+  /movements:
+    get:
+      tags: [Movements]
+      operationId: listMovements
+      summary: Storico movimentazioni
+      description: Ordinato dal più recente. Tutti i filtri sono combinabili.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - { name: product_id, in: query, schema: { type: string, format: uuid } }
+        - { name: lot_id, in: query, schema: { type: string, format: uuid } }
+        - { name: serial_id, in: query, schema: { type: string, format: uuid } }
+        - { name: location_id, in: query, description: Origine o destinazione, schema: { type: string, format: uuid } }
+        - { name: warehouse_id, in: query, schema: { type: string, format: uuid } }
+        - { name: sales_order_id, in: query, schema: { type: string, format: uuid } }
+        - { name: purchase_order_id, in: query, schema: { type: string, format: uuid } }
+        - { name: order_ref, in: query, description: "Numero o riferimento esterno dell'ordine, oppure external_ref del movimento", schema: { type: string } }
+        - { name: operation_id, in: query, schema: { type: string, format: uuid } }
+        - { name: type, in: query, schema: { $ref: '#/components/schemas/MovementType' } }
+        - { name: operator, in: query, schema: { type: string } }
+        - { name: from, in: query, description: occurred_at >= from, schema: { type: string, format: date-time } }
+        - { name: to, in: query, description: occurred_at < to, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: Pagina di movimenti
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MovementPage' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /movements/{movementId}:
+    parameters: [{ $ref: '#/components/parameters/MovementId' }]
+    get:
+      tags: [Movements]
+      operationId: getMovement
+      summary: Dettaglio movimento
+      responses:
+        '200':
+          description: Movimento
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Movement' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Movements]
+      operationId: replaceMovement
+      summary: Non ammesso — i movimenti sono immutabili
+      responses:
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
+    patch:
+      tags: [Movements]
+      operationId: updateMovement
+      summary: Non ammesso — i movimenti sono immutabili
+      responses:
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
+    delete:
+      tags: [Movements]
+      operationId: deleteMovement
+      summary: Non ammesso — i movimenti sono immutabili
+      responses:
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
+  /movements/{movementId}/reversal:
+    parameters: [{ $ref: '#/components/parameters/MovementId' }]
+    post:
+      tags: [Movements]
+      operationId: reverseMovement
+      summary: Storno (movimento inverso di rettifica)
+      description: |
+        Crea il movimento inverso collegato (`reverses_movement_id`). Ogni movimento si storna una sola volta.
+        Non sono stornabili gli storni e i movimenti `RESERVATION`/`RELEASE` (gestiti dall'ordine).
+        Lo storno di uno scarico d'ordine riduce la quantità evasa della riga; quello di un carico con
+        ordine fornitore riduce la quantità ricevuta. Si applicano i controlli di giacenza e capienza.
+      parameters:
+        - $ref: '#/components/parameters/Operator'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReversalRequest' }
+      responses:
+        '201':
+          description: Storno registrato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OperationResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  # ---------------------------------------------------------------- Sales orders
+  /sales-orders:
+    get:
+      tags: [Sales orders]
+      operationId: listSalesOrders
+      summary: Elenco ordini cliente
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/SalesOrderStatus' } }
+        - { name: warehouse_id, in: query, schema: { type: string, format: uuid } }
+        - { name: q, in: query, description: 'Numero, riferimento esterno o cliente', schema: { type: string } }
+      responses:
+        '200':
+          description: Pagina di ordini
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SalesOrderPage' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+    post:
+      tags: [Sales orders]
+      operationId: createSalesOrder
+      summary: Crea un ordine cliente (opzionalmente con prenotazione immediata)
+      parameters:
+        - $ref: '#/components/parameters/Operator'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SalesOrderCreate' }
+      responses:
+        '201':
+          description: Creato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SalesOrderResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /sales-orders/{orderId}:
+    parameters: [{ $ref: '#/components/parameters/OrderId' }]
+    get:
+      tags: [Sales orders]
+      operationId: getSalesOrder
+      summary: Dettaglio ordine cliente
+      responses:
+        '200':
+          description: Ordine
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SalesOrder' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /sales-orders/{orderId}/reserve:
+    parameters: [{ $ref: '#/components/parameters/OrderId' }]
+    post:
+      tags: [Sales orders]
+      operationId: reserveSalesOrder
+      summary: Prenotazione stock (impegno)
+      description: |
+        Impegna le quantità richieste riducendo il disponibile del magazzino senza toccare la giacenza fisica.
+        Senza `lines` impegna il residuo di tutte le righe. Senza `allow_partial` la richiesta è atomica:
+        se una riga non è coperta nessuna riga viene impegnata (`INSUFFICIENT_AVAILABILITY`).
+      parameters:
+        - $ref: '#/components/parameters/Operator'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReserveRequest' }
+            examples:
+              reserveAll:
+                $ref: '#/components/examples/ReserveAll'
+      responses:
+        '200':
+          description: Impegno registrato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SalesOrderResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /sales-orders/{orderId}/release:
+    parameters: [{ $ref: '#/components/parameters/OrderId' }]
+    post:
+      tags: [Sales orders]
+      operationId: releaseSalesOrder
+      summary: Sblocco prenotazione (disimpegno)
+      description: Senza `lines` rilascia tutto l'impegnato dell'ordine.
+      parameters:
+        - $ref: '#/components/parameters/Operator'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReleaseRequest' }
+      responses:
+        '200':
+          description: Impegno rilasciato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SalesOrderResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /sales-orders/{orderId}/lines/{lineId}:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+      - { name: lineId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Sales orders]
+      operationId: updateSalesOrderLine
+      summary: Modifica la quantità ordinata di una riga
+      description: |
+        Se la nuova quantità è inferiore a impegnato + evaso, l'eccedenza impegnata viene rilasciata
+        (movimento `RELEASE`). Non può scendere sotto l'evaso (`QUANTITY_BELOW_FULFILLED`).
+        Un aumento non impegna automaticamente.
+      parameters: [{ $ref: '#/components/parameters/Operator' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SalesOrderLineUpdate' }
+      responses:
+        '200':
+          description: Ordine aggiornato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SalesOrderResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /sales-orders/{orderId}/cancel:
+    parameters: [{ $ref: '#/components/parameters/OrderId' }]
+    post:
+      tags: [Sales orders]
+      operationId: cancelSalesOrder
+      summary: Annulla l'ordine e rilascia tutti gli impegni
+      description: Non ammesso su ordini `FULFILLED` o `CANCELLED`. Le quantità già evase restano evase.
+      parameters: [{ $ref: '#/components/parameters/Operator' }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CancelRequest' }
+      responses:
+        '200':
+          description: Ordine annullato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SalesOrderResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /sales-orders/{orderId}/fulfill:
+    parameters: [{ $ref: '#/components/parameters/OrderId' }]
+    post:
+      tags: [Sales orders]
+      operationId: fulfillSalesOrder
+      summary: Evasione ordine (conversione dell'impegno in scarico)
+      description: |
+        Converte la quantità impegnata in movimenti `OUTBOUND` collegati all'ordine. Senza `lines` evade
+        tutto l'impegnato. In `AUTO` i prelievi seguono FEFO/FIFO; in `MANUAL` valgono le regole FEFO
+        dello scarico (`FEFO_VIOLATION` salvo `fefo_override`). Si può evadere solo quanto impegnato
+        (`FULFILLMENT_EXCEEDS_RESERVED`); l'evasione parziale è ammessa.
+      parameters:
+        - $ref: '#/components/parameters/Operator'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FulfillRequest' }
+            examples:
+              fefoAuto:
+                $ref: '#/components/examples/FulfillFefo'
+      responses:
+        '200':
+          description: Ordine evaso (totalmente o parzialmente)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SalesOrderResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  # ---------------------------------------------------------------- Purchase orders
+  /purchase-orders:
+    get:
+      tags: [Purchase orders]
+      operationId: listPurchaseOrders
+      summary: Elenco ordini fornitore
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/PurchaseOrderStatus' } }
+        - { name: warehouse_id, in: query, schema: { type: string, format: uuid } }
+        - { name: q, in: query, description: 'Numero, riferimento esterno o fornitore', schema: { type: string } }
+      responses:
+        '200':
+          description: Pagina di ordini
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PurchaseOrderPage' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+    post:
+      tags: [Purchase orders]
+      operationId: createPurchaseOrder
+      summary: Crea un ordine fornitore
+      parameters:
+        - $ref: '#/components/parameters/Operator'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PurchaseOrderCreate' }
+      responses:
+        '201':
+          description: Creato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PurchaseOrder' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /purchase-orders/{orderId}:
+    parameters: [{ $ref: '#/components/parameters/OrderId' }]
+    get:
+      tags: [Purchase orders]
+      operationId: getPurchaseOrder
+      summary: Dettaglio ordine fornitore
+      responses:
+        '200':
+          description: Ordine
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PurchaseOrder' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /purchase-orders/{orderId}/cancel:
+    parameters: [{ $ref: '#/components/parameters/OrderId' }]
+    post:
+      tags: [Purchase orders]
+      operationId: cancelPurchaseOrder
+      summary: Annulla un ordine fornitore non ancora ricevuto
+      parameters: [{ $ref: '#/components/parameters/Operator' }]
+      responses:
+        '200':
+          description: Annullato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PurchaseOrder' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ---------------------------------------------------------------- Alerts
+  /alerts:
+    get:
+      tags: [Alerts]
+      operationId: listAlerts
+      summary: Alert correnti (sotto-scorta, scadenze, impegni a rischio)
+      description: Solo prodotti attivi; gli alert di scadenza riguardano lotti con giacenza.
+      parameters:
+        - { name: warehouse_id, in: query, schema: { type: string, format: uuid } }
+        - { name: product_id, in: query, schema: { type: string, format: uuid } }
+        - { name: type, in: query, schema: { $ref: '#/components/schemas/AlertType' } }
+      responses:
+        '200':
+          description: Alert
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Alert' } }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+components:
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: page_size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Operator:
+      name: X-Operator
+      in: header
+      required: true
+      description: Identificativo dell'operatore che esegue la richiesta (registrato sui movimenti).
+      schema: { type: string, minLength: 1, maxLength: 100 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Chiave univoca scelta dal client. Ripetere la stessa richiesta con la stessa chiave restituisce
+        la risposta originale senza rieseguirla. Riutilizzarla con un corpo diverso dà `IDEMPOTENCY_KEY_REUSED`.
+      schema: { type: string, minLength: 1, maxLength: 200 }
+    IfMatch:
+      name: If-Match
+      in: header
+      required: false
+      description: ETag ottenuto dal GET; se la versione è cambiata la richiesta è rifiutata con 412.
+      schema: { type: string }
+    WarehouseId:
+      { name: warehouseId, in: path, required: true, schema: { type: string, format: uuid } }
+    LocationId:
+      { name: locationId, in: path, required: true, schema: { type: string, format: uuid } }
+    ProductId:
+      { name: productId, in: path, required: true, schema: { type: string, format: uuid } }
+    LotId:
+      { name: lotId, in: path, required: true, schema: { type: string, format: uuid } }
+    MovementId:
+      { name: movementId, in: path, required: true, schema: { type: string, format: uuid } }
+    OrderId:
+      { name: orderId, in: path, required: true, schema: { type: string, format: uuid } }
+
+  headers:
+    ETag:
+      description: Versione della risorsa, da rimandare in `If-Match`.
+      schema: { type: string }
+
+  responses:
+    BadRequest:
+      description: Richiesta non valida (es. `OPERATOR_MISSING`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Risorsa non trovata (`NOT_FOUND`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: Violazione di una regola di business o di un vincolo di unicità
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            insufficientAvailability:
+              $ref: '#/components/examples/ProblemInsufficientAvailability'
+            fefoViolation:
+              $ref: '#/components/examples/ProblemFefoViolation'
+            locationFull:
+              $ref: '#/components/examples/ProblemCapacity'
+    Unprocessable:
+      description: Dati non validi (`VALIDATION_ERROR` o errore di dominio sui dati)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    PreconditionFailed:
+      description: '`VERSION_CONFLICT`: la risorsa è stata modificata da un altro utente'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    MethodNotAllowed:
+      description: '`MOVEMENT_IMMUTABLE`: i movimenti confermati non si modificano né si eliminano'
+      headers:
+        Allow: { schema: { type: string }, description: 'GET' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    # ------------------------------------------------------------ common
+    Problem:
+      type: object
+      description: RFC 9457 Problem Details, esteso con `code` e `details`.
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, example: 'urn:warehouse:error:INSUFFICIENT_AVAILABILITY' }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        code: { $ref: '#/components/schemas/ErrorCode' }
+        details:
+          type: object
+          additionalProperties: true
+          description: Dati strutturati specifici del codice (vedi `api/errors.md`).
+    ErrorCode:
+      type: string
+      enum:
+        - VALIDATION_ERROR
+        - NOT_FOUND
+        - OPERATOR_MISSING
+        - METHOD_NOT_ALLOWED
+        - VERSION_CONFLICT
+        - IDEMPOTENCY_KEY_REUSED
+        - IDEMPOTENCY_IN_PROGRESS
+        - DUPLICATE_CODE
+        - DUPLICATE_SKU
+        - DUPLICATE_EAN
+        - DUPLICATE_LOT
+        - DUPLICATE_ORDER_NUMBER
+        - PRODUCT_INACTIVE
+        - PRODUCT_HAS_STOCK
+        - WAREHOUSE_INACTIVE
+        - LOCATION_INACTIVE
+        - LOCATION_NOT_EMPTY
+        - LOCATION_WAREHOUSE_MISMATCH
+        - STORAGE_TYPE_MISMATCH
+        - LOCATION_CAPACITY_EXCEEDED
+        - INSUFFICIENT_STOCK
+        - INSUFFICIENT_AVAILABILITY
+        - LOT_EXPIRED
+        - LOT_BLOCKED
+        - LOT_REQUIRED
+        - LOT_NOT_ALLOWED
+        - EXPIRY_DATE_REQUIRED
+        - LOT_PRODUCT_MISMATCH
+        - LOT_DATA_MISMATCH
+        - FEFO_VIOLATION
+        - SERIALS_REQUIRED
+        - SERIALS_NOT_ALLOWED
+        - SERIAL_COUNT_MISMATCH
+        - SERIAL_ALREADY_EXISTS
+        - SERIAL_NOT_AVAILABLE
+        - SAME_LOCATION_TRANSFER
+        - CROSS_WAREHOUSE_TRANSFER_NOT_SUPPORTED
+        - ADJUSTMENT_REASON_REQUIRED
+        - MOVEMENT_IMMUTABLE
+        - MOVEMENT_ALREADY_REVERSED
+        - MOVEMENT_NOT_REVERSIBLE
+        - ORDER_STATE_INVALID
+        - ORDER_LINE_NOT_FOUND
+        - RESERVATION_EXCEEDS_ORDERED
+        - RELEASE_EXCEEDS_RESERVED
+        - FULFILLMENT_EXCEEDS_RESERVED
+        - QUANTITY_BELOW_FULFILLED
+        - RECEIPT_EXCEEDS_ORDERED
+        - PURCHASE_ORDER_MISMATCH
+        - INTERNAL_ERROR
+    Quantity:
+      type: number
+      description: Quantità decimale (max 3 decimali). Intera per i prodotti a seriale.
+      example: 12.5
+    PositiveQuantity:
+      type: number
+      exclusiveMinimum: 0
+      example: 10
+    PageMeta:
+      type: object
+      required: [page, page_size, total]
+      properties:
+        page: { type: integer }
+        page_size: { type: integer }
+        total: { type: integer, description: Numero totale di elementi }
+
+    # ------------------------------------------------------------ enums
+    StorageType:
+      type: string
+      enum: [AMBIENT, REFRIGERATED, FROZEN, HAZARDOUS, BULK]
+    Uom:
+      type: string
+      enum: [PCS, KG, M, L]
+      description: Unità di misura (pezzi, chilogrammi, metri, litri).
+    Tracking:
+      type: string
+      enum: [NONE, LOT, SERIAL]
+    ProductStatus:
+      type: string
+      enum: [ACTIVE, INACTIVE]
+    LotStatus:
+      type: string
+      enum: [ACTIVE, BLOCKED]
+    SerialStatus:
+      type: string
+      enum: [IN_STOCK, SHIPPED, SCRAPPED]
+    MovementType:
+      type: string
+      enum: [INBOUND, OUTBOUND, TRANSFER, ADJUSTMENT, RESERVATION, RELEASE]
+    Direction:
+      type: string
+      enum: [IN, OUT]
+    AdjustmentReason:
+      type: string
+      enum: [COUNT, DAMAGE, LOSS, FOUND, EXPIRED_DISPOSAL, OTHER]
+    PickStrategy:
+      type: string
+      enum: [AUTO, FEFO, FIFO]
+      default: AUTO
+    PickMode:
+      type: string
+      enum: [AUTO, MANUAL]
+      default: AUTO
+    SalesOrderStatus:
+      type: string
+      enum: [OPEN, PARTIALLY_RESERVED, RESERVED, PARTIALLY_FULFILLED, FULFILLED, CANCELLED]
+      description: |
+        Calcolato dalle righe: `FULFILLED` se tutto evaso; `PARTIALLY_FULFILLED` se qualcosa è evaso;
+        `RESERVED` se tutto il residuo è impegnato; `PARTIALLY_RESERVED` se parte; altrimenti `OPEN`.
+    PurchaseOrderStatus:
+      type: string
+      enum: [OPEN, PARTIALLY_RECEIVED, RECEIVED, CANCELLED]
+    AlertType:
+      type: string
+      enum: [LOW_STOCK, EXPIRING, EXPIRED, RESERVATION_AT_RISK]
+    AlertSeverity:
+      type: string
+      enum: [INFO, WARNING, CRITICAL]
+
+    # ------------------------------------------------------------ warehouses
+    Warehouse:
+      type: object
+      required: [id, code, name, active, version, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string, example: MI01 }
+        name: { type: string, example: Magazzino Milano }
+        address: { type: [string, 'null'] }
+        active: { type: boolean }
+        version: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    WarehouseCreate:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 20 }
+        name: { type: string, minLength: 1 }
+        address: { type: [string, 'null'] }
+    WarehouseUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        address: { type: [string, 'null'] }
+        active: { type: boolean }
+    WarehousePage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/Warehouse' } }
+    Zone:
+      type: object
+      required: [id, warehouse_id, code, name, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        warehouse_id: { type: string, format: uuid }
+        code: { type: string, example: A }
+        name: { type: string, example: Zona A - Secco }
+        created_at: { type: string, format: date-time }
+    ZoneCreate:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 20 }
+        name: { type: string, minLength: 1 }
+    ZoneUpdate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+    Occupancy:
+      type: object
+      required: [weight_kg, volume_m3]
+      properties:
+        weight_kg: { type: number }
+        volume_m3: { type: number }
+        weight_pct: { type: [number, 'null'], description: Percentuale sul massimo; null se illimitato }
+        volume_pct: { type: [number, 'null'] }
+        full: { type: boolean, description: Vero se peso o volume hanno raggiunto il massimo }
+    Location:
+      type: object
+      required: [id, warehouse_id, zone_id, code, storage_type, active, version, occupancy, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        warehouse_id: { type: string, format: uuid }
+        zone_id: { type: string, format: uuid }
+        zone_code: { type: string }
+        code: { type: string, example: A-03-02, description: Univoco nel magazzino }
+        aisle: { type: [string, 'null'], example: '03' }
+        shelf: { type: [string, 'null'], example: '02' }
+        level: { type: [string, 'null'] }
+        storage_type: { $ref: '#/components/schemas/StorageType' }
+        max_weight_kg: { type: [number, 'null'], description: null = illimitato }
+        max_volume_m3: { type: [number, 'null'], description: null = illimitato }
+        active: { type: boolean }
+        version: { type: integer }
+        occupancy: { $ref: '#/components/schemas/Occupancy' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    LocationCreate:
+      type: object
+      required: [zone_id, code, storage_type]
+      properties:
+        zone_id: { type: string, format: uuid }
+        code: { type: string, minLength: 1, maxLength: 40 }
+        aisle: { type: [string, 'null'] }
+        shelf: { type: [string, 'null'] }
+        level: { type: [string, 'null'] }
+        storage_type: { $ref: '#/components/schemas/StorageType' }
+        max_weight_kg: { type: [number, 'null'], exclusiveMinimum: 0 }
+        max_volume_m3: { type: [number, 'null'], exclusiveMinimum: 0 }
+    LocationUpdate:
+      type: object
+      description: I campi omessi restano invariati; `null` su una capienza la rende illimitata.
+      properties:
+        aisle: { type: [string, 'null'] }
+        shelf: { type: [string, 'null'] }
+        level: { type: [string, 'null'] }
+        storage_type: { $ref: '#/components/schemas/StorageType' }
+        max_weight_kg: { type: [number, 'null'], exclusiveMinimum: 0 }
+        max_volume_m3: { type: [number, 'null'], exclusiveMinimum: 0 }
+        active: { type: boolean }
+    LocationPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/Location' } }
+    LocationContent:
+      type: object
+      required: [location, items]
+      properties:
+        location: { $ref: '#/components/schemas/Location' }
+        items: { type: array, items: { $ref: '#/components/schemas/StockItem' } }
+
+    # ------------------------------------------------------------ products
+    Product:
+      type: object
+      required: [id, sku, name, uom, unit_price, currency, min_stock, tracking, requires_expiry,
+                 expiry_warning_days, unit_weight_kg, unit_volume_m3, status, version, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        sku: { type: string, example: LATTE-UHT-1L }
+        ean: { type: [string, 'null'], example: '8001234567890' }
+        name: { type: string, example: Latte UHT intero 1L }
+        description: { type: [string, 'null'] }
+        category: { type: [string, 'null'], example: Latticini }
+        uom: { $ref: '#/components/schemas/Uom' }
+        unit_price: { type: number, example: 1.29 }
+        currency: { type: string, example: EUR, minLength: 3, maxLength: 3 }
+        min_stock: { $ref: '#/components/schemas/Quantity' }
+        tracking: { $ref: '#/components/schemas/Tracking' }
+        requires_expiry: { type: boolean }
+        expiry_warning_days: { type: integer, description: Giorni di preavviso per l'alert EXPIRING }
+        unit_weight_kg: { type: number, description: Peso per unità di misura }
+        unit_volume_m3: { type: number, description: Volume per unità di misura }
+        required_storage_type:
+          oneOf:
+            - { $ref: '#/components/schemas/StorageType' }
+            - { type: 'null' }
+        status: { $ref: '#/components/schemas/ProductStatus' }
+        version: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ProductCreate:
+      type: object
+      required: [sku, name, uom]
+      properties:
+        sku: { type: string, minLength: 1, maxLength: 64 }
+        ean: { type: [string, 'null'], pattern: '^[0-9]{8,14}$' }
+        name: { type: string, minLength: 1 }
+        description: { type: [string, 'null'] }
+        category: { type: [string, 'null'] }
+        uom: { $ref: '#/components/schemas/Uom' }
+        unit_price: { type: number, minimum: 0, default: 0 }
+        currency: { type: string, default: EUR }
+        min_stock: { type: number, minimum: 0, default: 0 }
+        tracking: { $ref: '#/components/schemas/Tracking' }
+        requires_expiry: { type: boolean, default: false, description: Ammesso solo con tracking LOT o SERIAL }
+        expiry_warning_days: { type: integer, minimum: 0, default: 30 }
+        unit_weight_kg: { type: number, minimum: 0, default: 0 }
+        unit_volume_m3: { type: number, minimum: 0, default: 0 }
+        required_storage_type:
+          oneOf:
+            - { $ref: '#/components/schemas/StorageType' }
+            - { type: 'null' }
+    ProductUpdate:
+      type: object
+      properties:
+        ean: { type: [string, 'null'], pattern: '^[0-9]{8,14}$' }
+        name: { type: string, minLength: 1 }
+        description: { type: [string, 'null'] }
+        category: { type: [string, 'null'] }
+        uom: { $ref: '#/components/schemas/Uom' }
+        unit_price: { type: number, minimum: 0 }
+        currency: { type: string }
+        min_stock: { type: number, minimum: 0 }
+        expiry_warning_days: { type: integer, minimum: 0 }
+        unit_weight_kg: { type: number, minimum: 0 }
+        unit_volume_m3: { type: number, minimum: 0 }
+        required_storage_type:
+          oneOf:
+            - { $ref: '#/components/schemas/StorageType' }
+            - { type: 'null' }
+    ProductListItem:
+      allOf:
+        - $ref: '#/components/schemas/Product'
+        - type: object
+          required: [stock]
+          properties:
+            stock: { $ref: '#/components/schemas/StockFigures' }
+    ProductPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/ProductListItem' } }
+    StockFigures:
+      type: object
+      required: [physical, unusable, reserved, available, below_min_stock, expiring_quantity, expired_quantity]
+      properties:
+        physical: { type: number, description: Giacenza fisica totale }
+        unusable: { type: number, description: In lotti scaduti o bloccati }
+        reserved: { type: number, description: Impegnato dagli ordini di vendita }
+        available: { type: number, description: physical − unusable − reserved }
+        below_min_stock: { type: boolean }
+        expiring_quantity: { type: number, description: In lotti che scadono entro expiry_warning_days }
+        expired_quantity: { type: number }
+    WarehouseAvailability:
+      allOf:
+        - $ref: '#/components/schemas/StockFigures'
+        - type: object
+          required: [warehouse_id, warehouse_code, alerts]
+          properties:
+            warehouse_id: { type: string, format: uuid }
+            warehouse_code: { type: string }
+            alerts: { type: array, items: { $ref: '#/components/schemas/Alert' } }
+    ProductAvailability:
+      type: object
+      required: [product_id, sku, uom, min_stock, totals, warehouses]
+      properties:
+        product_id: { type: string, format: uuid }
+        sku: { type: string }
+        uom: { $ref: '#/components/schemas/Uom' }
+        min_stock: { type: number }
+        totals: { $ref: '#/components/schemas/StockFigures' }
+        warehouses: { type: array, items: { $ref: '#/components/schemas/WarehouseAvailability' } }
+
+    # ------------------------------------------------------------ lots & serials
+    Lot:
+      type: object
+      required: [id, product_id, sku, lot_code, status, expired, received_at, on_hand, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        product_id: { type: string, format: uuid }
+        sku: { type: string }
+        lot_code: { type: string, description: Identificativo del lotto del produttore, example: L2026-0915A }
+        production_date: { type: [string, 'null'], format: date }
+        expiry_date: { type: [string, 'null'], format: date }
+        received_at: { type: string, format: date-time, description: Primo ricevimento (base FIFO) }
+        status: { $ref: '#/components/schemas/LotStatus' }
+        expired: { type: boolean }
+        days_to_expiry: { type: [integer, 'null'], description: Negativo se scaduto }
+        on_hand: { type: number, description: Giacenza fisica in tutti i magazzini }
+        created_at: { type: string, format: date-time }
+    LotCreate:
+      type: object
+      required: [lot_code]
+      properties:
+        lot_code: { type: string, minLength: 1, maxLength: 64 }
+        production_date: { type: [string, 'null'], format: date }
+        expiry_date: { type: [string, 'null'], format: date }
+    LotUpdate:
+      type: object
+      properties:
+        status: { $ref: '#/components/schemas/LotStatus' }
+        production_date: { type: [string, 'null'], format: date }
+        expiry_date: { type: [string, 'null'], format: date }
+    LotPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/Lot' } }
+    Serial:
+      type: object
+      required: [id, product_id, sku, serial_number, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        product_id: { type: string, format: uuid }
+        sku: { type: string }
+        serial_number: { type: string }
+        lot_id: { type: [string, 'null'], format: uuid }
+        lot_code: { type: [string, 'null'] }
+        location_id: { type: [string, 'null'], format: uuid, description: Ubicazione attuale se IN_STOCK }
+        location_code: { type: [string, 'null'] }
+        status: { $ref: '#/components/schemas/SerialStatus' }
+        created_at: { type: string, format: date-time }
+    SerialPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/Serial' } }
+    Shipment:
+      type: object
+      description: Uscita verso cliente di un lotto o seriale.
+      required: [movement_id, quantity, occurred_at]
+      properties:
+        movement_id: { type: string, format: uuid }
+        quantity: { type: number }
+        occurred_at: { type: string, format: date-time }
+        sales_order_id: { type: [string, 'null'], format: uuid }
+        sales_order_number: { type: [string, 'null'] }
+        customer_name: { type: [string, 'null'] }
+        external_ref: { type: [string, 'null'] }
+    LotTrace:
+      type: object
+      required: [lot, totals, current_stock, movements, shipments]
+      properties:
+        lot: { $ref: '#/components/schemas/Lot' }
+        totals:
+          type: object
+          required: [received, shipped, adjusted_in, adjusted_out, on_hand]
+          properties:
+            received: { type: number }
+            shipped: { type: number }
+            adjusted_in: { type: number }
+            adjusted_out: { type: number }
+            on_hand: { type: number }
+        current_stock: { type: array, items: { $ref: '#/components/schemas/StockItem' } }
+        movements:
+          type: array
+          description: Ordine cronologico (dal più vecchio)
+          items: { $ref: '#/components/schemas/Movement' }
+        shipments: { type: array, items: { $ref: '#/components/schemas/Shipment' } }
+    SerialTrace:
+      type: object
+      required: [serial, movements]
+      properties:
+        serial: { $ref: '#/components/schemas/Serial' }
+        movements: { type: array, items: { $ref: '#/components/schemas/Movement' } }
+        shipment:
+          oneOf:
+            - { $ref: '#/components/schemas/Shipment' }
+            - { type: 'null' }
+
+    # ------------------------------------------------------------ stock
+    StockItem:
+      type: object
+      required: [id, warehouse_id, location_id, location_code, zone_id, product_id, sku, product_name, uom, quantity, received_at, usable]
+      properties:
+        id: { type: string, format: uuid }
+        warehouse_id: { type: string, format: uuid }
+        location_id: { type: string, format: uuid }
+        location_code: { type: string }
+        zone_id: { type: string, format: uuid }
+        product_id: { type: string, format: uuid }
+        sku: { type: string }
+        product_name: { type: string }
+        uom: { $ref: '#/components/schemas/Uom' }
+        lot_id: { type: [string, 'null'], format: uuid }
+        lot_code: { type: [string, 'null'] }
+        expiry_date: { type: [string, 'null'], format: date }
+        lot_status:
+          oneOf:
+            - { $ref: '#/components/schemas/LotStatus' }
+            - { type: 'null' }
+        quantity: { type: number, description: Quantità fisica }
+        received_at: { type: string, format: date-time }
+        usable: { type: boolean, description: Falso se il lotto è scaduto o bloccato }
+        serials: { type: array, items: { type: string }, description: Seriali presenti (solo prodotti a seriale) }
+    StockPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/StockItem' } }
+
+    # ------------------------------------------------------------ operations
+    LotInput:
+      type: object
+      description: Dati del lotto per il carico. Se il lotto esiste già, le date indicate devono coincidere.
+      required: [lot_code]
+      properties:
+        lot_code: { type: string, minLength: 1, maxLength: 64 }
+        production_date: { type: [string, 'null'], format: date }
+        expiry_date: { type: [string, 'null'], format: date }
+    ReceiptLine:
+      type: object
+      required: [product_id, quantity, location_id]
+      properties:
+        product_id: { type: string, format: uuid }
+        quantity: { $ref: '#/components/schemas/PositiveQuantity' }
+        location_id: { type: string, format: uuid, description: Ubicazione di destinazione }
+        lot_id: { type: [string, 'null'], format: uuid, description: Lotto esistente (alternativo a `lot`) }
+        lot: { $ref: '#/components/schemas/LotInput' }
+        serials:
+          type: array
+          items: { type: string, minLength: 1 }
+          description: Obbligatori per i prodotti a seriale; il numero deve coincidere con la quantità.
+        purchase_order_line_id: { type: [string, 'null'], format: uuid }
+    ReceiptRequest:
+      type: object
+      required: [warehouse_id, lines]
+      properties:
+        warehouse_id: { type: string, format: uuid }
+        purchase_order_id: { type: [string, 'null'], format: uuid }
+        external_ref: { type: [string, 'null'], description: 'Es. numero DDT del fornitore' }
+        reason_code: { type: string, default: PURCHASE_RECEIPT }
+        note: { type: [string, 'null'] }
+        occurred_at: { type: string, format: date-time, description: Default ora corrente }
+        lines: { type: array, minItems: 1, items: { $ref: '#/components/schemas/ReceiptLine' } }
+    PickingSuggestionRequest:
+      type: object
+      required: [warehouse_id]
+      properties:
+        warehouse_id: { type: string, format: uuid }
+        strategy: { $ref: '#/components/schemas/PickStrategy' }
+        sales_order_id: { type: [string, 'null'], format: uuid, description: In alternativa a `lines` }
+        lines:
+          type: array
+          items:
+            type: object
+            required: [product_id, quantity]
+            properties:
+              product_id: { type: string, format: uuid }
+              quantity: { $ref: '#/components/schemas/PositiveQuantity' }
+    Pick:
+      type: object
+      required: [location_id, location_code, quantity]
+      properties:
+        location_id: { type: string, format: uuid }
+        location_code: { type: string }
+        lot_id: { type: [string, 'null'], format: uuid }
+        lot_code: { type: [string, 'null'] }
+        expiry_date: { type: [string, 'null'], format: date }
+        received_at: { type: string, format: date-time }
+        quantity: { type: number }
+        serials: { type: array, items: { type: string } }
+    PickingSuggestionLine:
+      type: object
+      required: [product_id, sku, requested, allocated, shortfall, strategy_applied, picks]
+      properties:
+        product_id: { type: string, format: uuid }
+        sku: { type: string }
+        sales_order_line_id: { type: [string, 'null'], format: uuid }
+        requested: { type: number }
+        allocated: { type: number }
+        shortfall: { type: number, description: Quantità non coperta dalle giacenze utilizzabili }
+        strategy_applied: { type: string, enum: [FEFO, FIFO] }
+        picks: { type: array, items: { $ref: '#/components/schemas/Pick' } }
+    PickingSuggestion:
+      type: object
+      required: [warehouse_id, lines]
+      properties:
+        warehouse_id: { type: string, format: uuid }
+        lines: { type: array, items: { $ref: '#/components/schemas/PickingSuggestionLine' } }
+    PickInput:
+      type: object
+      required: [location_id, quantity]
+      properties:
+        location_id: { type: string, format: uuid }
+        lot_id: { type: [string, 'null'], format: uuid }
+        quantity: { $ref: '#/components/schemas/PositiveQuantity' }
+        serials: { type: array, items: { type: string }, description: Obbligatori per i prodotti a seriale }
+    FefoOverride:
+      type: object
+      required: [reason]
+      description: Conferma esplicita di un prelievo in deroga a FEFO; la motivazione viene registrata sui movimenti.
+      properties:
+        reason: { type: string, minLength: 3 }
+    ShipmentLine:
+      type: object
+      required: [product_id]
+      properties:
+        product_id: { type: string, format: uuid }
+        quantity:
+          $ref: '#/components/schemas/PositiveQuantity'
+          description: Obbligatoria in AUTO; in MANUAL, se presente, deve essere la somma dei picks.
+        picks: { type: array, items: { $ref: '#/components/schemas/PickInput' }, description: Obbligatori in MANUAL }
+    ShipmentRequest:
+      type: object
+      required: [warehouse_id, lines]
+      properties:
+        warehouse_id: { type: string, format: uuid }
+        mode: { $ref: '#/components/schemas/PickMode' }
+        strategy: { $ref: '#/components/schemas/PickStrategy' }
+        external_ref: { type: [string, 'null'] }
+        reason_code: { type: string, default: SHIPMENT }
+        note: { type: [string, 'null'] }
+        occurred_at: { type: string, format: date-time }
+        fefo_override:
+          oneOf:
+            - { $ref: '#/components/schemas/FefoOverride' }
+            - { type: 'null' }
+        lines: { type: array, minItems: 1, items: { $ref: '#/components/schemas/ShipmentLine' } }
+    TransferLine:
+      type: object
+      required: [product_id, from_location_id, to_location_id, quantity]
+      properties:
+        product_id: { type: string, format: uuid }
+        lot_id: { type: [string, 'null'], format: uuid }
+        from_location_id: { type: string, format: uuid }
+        to_location_id: { type: string, format: uuid }
+        quantity: { $ref: '#/components/schemas/PositiveQuantity' }
+        serials: { type: array, items: { type: string } }
+    TransferRequest:
+      type: object
+      required: [lines]
+      properties:
+        reason_code: { type: string, default: INTERNAL_TRANSFER }
+        note: { type: [string, 'null'] }
+        occurred_at: { type: string, format: date-time }
+        lines: { type: array, minItems: 1, items: { $ref: '#/components/schemas/TransferLine' } }
+    AdjustmentRequest:
+      type: object
+      required: [location_id, product_id, counted_quantity, reason_code]
+      properties:
+        location_id: { type: string, format: uuid }
+        product_id: { type: string, format: uuid }
+        lot_id: { type: [string, 'null'], format: uuid }
+        lot: { $ref: '#/components/schemas/LotInput' }
+        counted_quantity: { type: number, minimum: 0 }
+        reason_code: { $ref: '#/components/schemas/AdjustmentReason' }
+        note: { type: [string, 'null'], description: Obbligatoria con reason_code OTHER }
+        serials:
+          type: array
+          items: { type: string }
+          description: Seriali mancanti (conteggio inferiore) o trovati (conteggio superiore).
+        occurred_at: { type: string, format: date-time }
+    ReversalRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 3 }
+        note: { type: [string, 'null'] }
+    OperationResult:
+      type: object
+      required: [operation_id, movements, alerts]
+      properties:
+        operation_id: { type: string, format: uuid }
+        movements: { type: array, items: { $ref: '#/components/schemas/Movement' } }
+        alerts: { type: array, items: { $ref: '#/components/schemas/Alert' } }
+
+    # ------------------------------------------------------------ movements
+    Movement:
+      type: object
+      required: [id, number, operation_id, type, product_id, sku, warehouse_id, quantity, reason_code, operator, occurred_at, created_at, serials]
+      properties:
+        id: { type: string, format: uuid }
+        number: { type: integer, description: Progressivo globale }
+        operation_id: { type: string, format: uuid, description: Raggruppa i movimenti di una stessa richiesta }
+        type: { $ref: '#/components/schemas/MovementType' }
+        direction:
+          description: Solo per ADJUSTMENT
+          oneOf:
+            - { $ref: '#/components/schemas/Direction' }
+            - { type: 'null' }
+        product_id: { type: string, format: uuid }
+        sku: { type: string }
+        lot_id: { type: [string, 'null'], format: uuid }
+        lot_code: { type: [string, 'null'] }
+        warehouse_id: { type: string, format: uuid }
+        from_location_id: { type: [string, 'null'], format: uuid }
+        from_location_code: { type: [string, 'null'] }
+        to_location_id: { type: [string, 'null'], format: uuid }
+        to_location_code: { type: [string, 'null'] }
+        quantity: { type: number, exclusiveMinimum: 0 }
+        serials: { type: array, items: { type: string } }
+        reason_code: { type: string }
+        note: { type: [string, 'null'] }
+        sales_order_id: { type: [string, 'null'], format: uuid }
+        sales_order_line_id: { type: [string, 'null'], format: uuid }
+        sales_order_number: { type: [string, 'null'] }
+        purchase_order_id: { type: [string, 'null'], format: uuid }
+        purchase_order_line_id: { type: [string, 'null'], format: uuid }
+        purchase_order_number: { type: [string, 'null'] }
+        external_ref: { type: [string, 'null'] }
+        operator: { type: string }
+        occurred_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        reverses_movement_id: { type: [string, 'null'], format: uuid }
+        reversed_by_movement_id: { type: [string, 'null'], format: uuid }
+        fefo_override_reason: { type: [string, 'null'] }
+    MovementPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/Movement' } }
+
+    # ------------------------------------------------------------ sales orders
+    SalesOrderLine:
+      type: object
+      required: [id, line_no, product_id, sku, product_name, quantity_ordered, quantity_reserved, quantity_fulfilled, quantity_open]
+      properties:
+        id: { type: string, format: uuid }
+        line_no: { type: integer }
+        product_id: { type: string, format: uuid }
+        sku: { type: string }
+        product_name: { type: string }
+        quantity_ordered: { type: number }
+        quantity_reserved: { type: number, description: Impegnato e non ancora evaso }
+        quantity_fulfilled: { type: number }
+        quantity_open: { type: number, description: ordered − reserved − fulfilled (da impegnare) }
+    SalesOrder:
+      type: object
+      required: [id, number, customer_name, warehouse_id, status, lines, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        number: { type: string, example: SO-000042 }
+        external_ref: { type: [string, 'null'], description: 'Riferimento del documento esterno (es. ordine e-commerce)' }
+        customer_name: { type: string }
+        warehouse_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/SalesOrderStatus' }
+        notes: { type: [string, 'null'] }
+        lines: { type: array, items: { $ref: '#/components/schemas/SalesOrderLine' } }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    SalesOrderResult:
+      allOf:
+        - $ref: '#/components/schemas/SalesOrder'
+        - type: object
+          required: [movements, alerts]
+          properties:
+            movements:
+              type: array
+              description: Movimenti generati dall'operazione (RESERVATION, RELEASE, OUTBOUND)
+              items: { $ref: '#/components/schemas/Movement' }
+            alerts: { type: array, items: { $ref: '#/components/schemas/Alert' } }
+    SalesOrderCreate:
+      type: object
+      required: [customer_name, warehouse_id, lines]
+      properties:
+        number: { type: [string, 'null'], description: Se assente viene generato (SO-NNNNNN) }
+        external_ref: { type: [string, 'null'] }
+        customer_name: { type: string, minLength: 1 }
+        warehouse_id: { type: string, format: uuid }
+        notes: { type: [string, 'null'] }
+        reserve: { type: boolean, default: false, description: Impegna subito tutte le righe (atomico) }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [product_id, quantity]
+            properties:
+              product_id: { type: string, format: uuid }
+              quantity: { $ref: '#/components/schemas/PositiveQuantity' }
+    LineQuantity:
+      type: object
+      required: [line_id, quantity]
+      properties:
+        line_id: { type: string, format: uuid }
+        quantity: { $ref: '#/components/schemas/PositiveQuantity' }
+    ReserveRequest:
+      type: object
+      properties:
+        lines: { type: array, items: { $ref: '#/components/schemas/LineQuantity' } }
+        allow_partial: { type: boolean, default: false, description: Impegna quanto disponibile invece di fallire }
+    ReleaseRequest:
+      type: object
+      properties:
+        lines: { type: array, items: { $ref: '#/components/schemas/LineQuantity' } }
+        reason: { type: [string, 'null'] }
+    CancelRequest:
+      type: object
+      properties:
+        reason: { type: [string, 'null'] }
+    SalesOrderLineUpdate:
+      type: object
+      required: [quantity]
+      properties:
+        quantity: { $ref: '#/components/schemas/PositiveQuantity' }
+    FulfillLine:
+      type: object
+      required: [line_id]
+      properties:
+        line_id: { type: string, format: uuid }
+        quantity: { $ref: '#/components/schemas/PositiveQuantity' }
+        picks: { type: array, items: { $ref: '#/components/schemas/PickInput' }, description: Obbligatori in MANUAL }
+    FulfillRequest:
+      type: object
+      properties:
+        mode: { $ref: '#/components/schemas/PickMode' }
+        strategy: { $ref: '#/components/schemas/PickStrategy' }
+        external_ref: { type: [string, 'null'], description: 'Es. numero DDT di uscita' }
+        note: { type: [string, 'null'] }
+        occurred_at: { type: string, format: date-time }
+        fefo_override:
+          oneOf:
+            - { $ref: '#/components/schemas/FefoOverride' }
+            - { type: 'null' }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/FulfillLine' }
+          description: Se assente evade tutto l'impegnato (solo AUTO)
+    SalesOrderPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/SalesOrder' } }
+
+    # ------------------------------------------------------------ purchase orders
+    PurchaseOrderLine:
+      type: object
+      required: [id, line_no, product_id, sku, product_name, quantity_ordered, quantity_received]
+      properties:
+        id: { type: string, format: uuid }
+        line_no: { type: integer }
+        product_id: { type: string, format: uuid }
+        sku: { type: string }
+        product_name: { type: string }
+        quantity_ordered: { type: number }
+        quantity_received: { type: number }
+    PurchaseOrder:
+      type: object
+      required: [id, number, supplier_name, warehouse_id, status, lines, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        number: { type: string, example: PO-000007 }
+        external_ref: { type: [string, 'null'] }
+        supplier_name: { type: string }
+        warehouse_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/PurchaseOrderStatus' }
+        expected_date: { type: [string, 'null'], format: date }
+        notes: { type: [string, 'null'] }
+        lines: { type: array, items: { $ref: '#/components/schemas/PurchaseOrderLine' } }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    PurchaseOrderCreate:
+      type: object
+      required: [supplier_name, warehouse_id, lines]
+      properties:
+        number: { type: [string, 'null'] }
+        external_ref: { type: [string, 'null'] }
+        supplier_name: { type: string, minLength: 1 }
+        warehouse_id: { type: string, format: uuid }
+        expected_date: { type: [string, 'null'], format: date }
+        notes: { type: [string, 'null'] }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [product_id, quantity]
+            properties:
+              product_id: { type: string, format: uuid }
+              quantity: { $ref: '#/components/schemas/PositiveQuantity' }
+    PurchaseOrderPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/PurchaseOrder' } }
+
+    # ------------------------------------------------------------ alerts
+    Alert:
+      type: object
+      required: [type, severity, product_id, sku, message]
+      properties:
+        type: { $ref: '#/components/schemas/AlertType' }
+        severity: { $ref: '#/components/schemas/AlertSeverity' }
+        warehouse_id: { type: [string, 'null'], format: uuid }
+        warehouse_code: { type: [string, 'null'] }
+        product_id: { type: string, format: uuid }
+        sku: { type: string }
+        lot_id: { type: [string, 'null'], format: uuid }
+        lot_code: { type: [string, 'null'] }
+        expiry_date: { type: [string, 'null'], format: date }
+        quantity: { type: [number, 'null'], description: 'Quantità interessata (disponibile, o giacenza del lotto)' }
+        threshold: { type: [number, 'null'], description: Scorta minima per LOW_STOCK }
+        message: { type: string }
+
+  examples:
+    ReceiptWithLot:
+      summary: Carico di latte con lotto e scadenza, collegato a un ordine fornitore
+      value:
+        warehouse_id: 6f1c2a52-6a0e-4d7e-9a0b-2f3c4d5e6f70
+        purchase_order_id: 0b6f3a51-9a7d-4c1e-8f20-1a2b3c4d5e6f
+        external_ref: DDT-2026-1187
+        lines:
+          - product_id: 3d8e9f10-1b2c-4d3e-8f4a-5b6c7d8e9f01
+            quantity: 240
+            location_id: 9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d
+            lot: { lot_code: L2026-0915A, production_date: '2026-09-15', expiry_date: '2026-12-15' }
+            purchase_order_line_id: 7c1d2e3f-4a5b-4c6d-9e7f-8a9b0c1d2e3f
+    ReserveAll:
+      summary: Impegna tutte le righe dell'ordine, in modo atomico
+      value:
+        allow_partial: false
+    FulfillFefo:
+      summary: Evasione automatica FEFO di tutto l'impegnato
+      value:
+        mode: AUTO
+        strategy: FEFO
+        external_ref: DDT-OUT-2026-0412
+    ProblemInsufficientAvailability:
+      summary: Prenotazione oltre il disponibile
+      value:
+        type: 'urn:warehouse:error:INSUFFICIENT_AVAILABILITY'
+        title: Disponibilità insufficiente
+        status: 409
+        code: INSUFFICIENT_AVAILABILITY
+        detail: 'Disponibili 40 PCS di LATTE-UHT-1L nel magazzino MI01, richiesti 60.'
+        details: { product_id: 3d8e9f10-1b2c-4d3e-8f4a-5b6c7d8e9f01, sku: LATTE-UHT-1L, warehouse_id: 6f1c2a52-6a0e-4d7e-9a0b-2f3c4d5e6f70, requested: 60, available: 40 }
+    ProblemFefoViolation:
+      summary: Prelievo manuale che salta un lotto a scadenza anteriore
+      value:
+        type: 'urn:warehouse:error:FEFO_VIOLATION'
+        title: Violazione FEFO
+        status: 409
+        code: FEFO_VIOLATION
+        detail: "Il lotto L2026-0915A (scad. 2026-12-15) ha scadenza posteriore al lotto L2026-0901B (scad. 2026-11-30) presente nel magazzino. Ripetere con fefo_override per confermare."
+        details:
+          product_id: 3d8e9f10-1b2c-4d3e-8f4a-5b6c7d8e9f01
+          picked_lot_code: L2026-0915A
+          picked_expiry_date: '2026-12-15'
+          earlier_lots: [{ lot_id: 5e6f7a8b-9c0d-4e1f-a2b3-c4d5e6f7a8b9, lot_code: L2026-0901B, expiry_date: '2026-11-30', quantity: 36 }]
+    ProblemCapacity:
+      summary: Carico verso un'ubicazione piena
+      value:
+        type: 'urn:warehouse:error:LOCATION_CAPACITY_EXCEEDED'
+        title: Capienza dell'ubicazione superata
+        status: 409
+        code: LOCATION_CAPACITY_EXCEEDED
+        detail: "L'ubicazione A-03-02 supererebbe il peso massimo (850 kg + 247.2 kg > 1000 kg)."
+        details: { location_id: 9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d, location_code: A-03-02, dimension: WEIGHT, current: 850, incoming: 247.2, max: 1000 }

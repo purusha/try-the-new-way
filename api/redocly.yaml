@@ -1,0 +1,7 @@
+extends:
+  - recommended
+rules:
+  # Nessuna licenza dichiarata per il progetto.
+  info-license: off
+  # PUT/PATCH/DELETE sui movimenti sono documentati solo per dichiarare il 405 (immutabilità).
+  operation-2xx-response: off
