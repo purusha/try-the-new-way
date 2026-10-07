@@ -20,8 +20,8 @@ use crate::stock_select;
 
 #[derive(Deserialize)]
 pub struct WarehouseFilter {
-    #[serde(flatten)]
-    page: PageParams,
+    page: Option<i64>,
+    page_size: Option<i64>,
     active: Option<bool>,
 }
 
@@ -29,7 +29,7 @@ pub async fn list_warehouses(
     State(pool): State<PgPool>,
     Query(f): Query<WarehouseFilter>,
 ) -> ApiResult<Json<Page<Warehouse>>> {
-    let (limit, offset, page, page_size) = f.page.sql()?;
+    let (limit, offset, page, page_size) = PageParams { page: f.page, page_size: f.page_size }.sql()?;
     let items = sqlx::query_as(
         "SELECT * FROM warehouses WHERE ($1::bool IS NULL OR active = $1) ORDER BY code LIMIT $2 OFFSET $3",
     )
@@ -318,8 +318,8 @@ async fn find_location(pool: &PgPool, id: Uuid) -> ApiResult<Location> {
 
 #[derive(Deserialize)]
 pub struct LocationFilter {
-    #[serde(flatten)]
-    page: PageParams,
+    page: Option<i64>,
+    page_size: Option<i64>,
     zone_id: Option<Uuid>,
     storage_type: Option<StorageType>,
     active: Option<bool>,
@@ -333,7 +333,7 @@ pub async fn list_locations(
     Query(f): Query<LocationFilter>,
 ) -> ApiResult<Json<Page<Location>>> {
     find_warehouse(&pool, id).await?;
-    let (limit, offset, page, page_size) = f.page.sql()?;
+    let (limit, offset, page, page_size) = PageParams { page: f.page, page_size: f.page_size }.sql()?;
     let storage = f.storage_type.map(StorageType::as_str);
     let rows: Vec<LocationRow> = sqlx::query_as(concat!(
         location_select!(),
