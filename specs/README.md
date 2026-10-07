@@ -10,3 +10,4 @@ Registro cronologico delle richieste e delle decisioni del progetto. Regole e te
 | 004 | 2026-10-07 | [Aggiornamento toolchain Rust e configurazione BE](2026-10-07-004-aggiornamento-toolchain-rust.md) | BE       | Implementata |
 | 005 | 2026-10-07 | [Repository remoto su GitHub](2026-10-07-005-repository-remoto-github.md) | Processo | Implementata |
 | 006 | 2026-10-07 | [Visibilità del repository e policy di push](2026-10-07-006-visibilita-repo-e-policy-push.md) | Processo | Implementata |
+| 007 | 2026-10-07 | [API di gestione magazzino](2026-10-07-007-api-gestione-magazzino.md) | BE+FE    | Approvata |

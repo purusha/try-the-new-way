@@ -3,7 +3,7 @@
 - **Data:** 2026-10-07
 - **Stato:** Implementata (decisione "Toolchain Rust" superata da 004)
 - **Ambito:** BE+FE
-- **Sostituisce / correlata a:** chiude i punti aperti di 001 e 002 (tranne il contratto API)
+- **Sostituisce / correlata a:** chiude i punti aperti di 001 e 002; il contratto API è chiuso da 007
 
 ## Richiesta originale
 > ok axum, proxy vite e fai git init
