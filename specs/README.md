@@ -9,3 +9,4 @@ Registro cronologico delle richieste e delle decisioni del progetto. Regole e te
 | 003 | 2026-10-07 | [Framework BE axum, proxy Vite, repository git](2026-10-07-003-axum-proxy-vite-git.md) | BE+FE    | Implementata (toolchain superata da 004) |
 | 004 | 2026-10-07 | [Aggiornamento toolchain Rust e configurazione BE](2026-10-07-004-aggiornamento-toolchain-rust.md) | BE       | Implementata |
 | 005 | 2026-10-07 | [Repository remoto su GitHub](2026-10-07-005-repository-remoto-github.md) | Processo | Implementata |
+| 006 | 2026-10-07 | [Visibilità del repository e policy di push](2026-10-07-006-visibilita-repo-e-policy-push.md) | Processo | Implementata |

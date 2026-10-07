@@ -14,6 +14,12 @@ Ogni richiesta dell'utente che introduce o modifica requisiti, scelte tecniche o
 - Le specifiche già scritte non si riscrivono: un cambio di decisione diventa una **nuova** specifica che cita quella che sostituisce, e quella vecchia passa allo stato `Superata da NNN`.
 - Riporta la richiesta originale dell'utente testualmente, in modo che resti traccia di cosa è stato chiesto e non solo di cosa è stato deciso.
 
+## Git e GitHub
+- Remote `origin`: `git@github.com:purusha/try-the-new-way.git`. Il repository è **pubblico**.
+- **Mai fare `git push` senza una richiesta esplicita dell'utente**, una per ogni push (spec 006).
+- I commit locali sono permessi, ad esempio per una specifica appena registrata o per il lavoro implementato.
+- Repository pubblico: non salvare mai segreti (chiavi, password, token, file `.env`) né dati riservati.
+
 ## Partner attivo, non passivo
 Prima di registrare e implementare una specifica:
 1. **Confrontala con le specifiche esistenti** e segnala contraddizioni, sovrapposizioni o dipendenze.
