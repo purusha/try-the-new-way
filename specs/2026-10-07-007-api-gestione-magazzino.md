@@ -1,7 +1,7 @@
 # 007 — API di gestione magazzino (prodotti, lotti, giacenze, movimenti, ordini)
 
 - **Data:** 2026-10-07
-- **Stato:** Approvata
+- **Stato:** Implementata
 - **Ambito:** BE+FE
 - **Sostituisce / correlata a:** chiude il punto aperto "contratto API BE↔FE" di 001 e 003
 
@@ -176,6 +176,25 @@ Risposte alle domande di chiarimento:
 - Le credenziali di Postgres in `.env.example` sono valori di sviluppo locali. Il `.env` reale è escluso da git.
 - Il deploy di produzione resta aperto (da 003).
 - Valuta unica per prodotto, senza conversioni né valorizzazione del magazzino.
+- **Emersi in implementazione:**
+  - **Evasione FEFO in più righe:** in una stessa richiesta il controllo FEFO dei prelievi manuali è fatto riga per riga. Un lotto anteriore prelevato da una riga successiva non "giustifica" la riga precedente.
+  - **Rettifica:** in aumento non applica il controllo di capienza, perché la merce è già fisicamente nell'ubicazione. Lo storno di una rettifica in diminuzione la reintegra con la stessa regola.
+  - **Carico di lotti già scaduti:** è ammesso. La merce risulta subito non utilizzabile e genera l'alert `EXPIRED`.
+  - **Idempotenza:** vengono memorizzate solo le risposte 2xx. Dopo un errore la stessa chiave si può riusare.
+  - **FE:**
+    - l'evasione degli ordini dalla UI è solo `AUTO`; la modalità `MANUAL` esiste solo via API;
+    - le tendine di ubicazioni e lotti mostrano al massimo 200 voci (`page_size` massimo);
+    - il filtro `status` degli ordini fornitore accetta un solo valore, quindi la pagina di carico fa due chiamate (`OPEN` e `PARTIALLY_RECEIVED`);
+    - `Movement` non espone l'unità di misura.
 
 ## Impatto
-`api/` (nuovo), `be/` (dipendenze, migrazioni, moduli), `fe/` (pagine, client API), `docker-compose.yml`, `.env.example`, `.gitignore`, `README.md`.
+- `api/`: `openapi.yaml` (validato con Redocly), `errors.md`, `examples/` (generati da uno scenario end-to-end reale), `redocly.yaml`.
+- `be/`:
+  - `migrations/0001_init.sql`: schema, vista `product_warehouse_figures`, trigger di immutabilità;
+  - `src/domain/`: FEFO/FIFO, capienza e alert, con unit test;
+  - `src/inventory.rs`: primitive transazionali;
+  - `src/routes/`: endpoint;
+  - `src/idempotency.rs`, `src/http.rs`, `src/error.rs`;
+  - `tests/api.rs`: integrazione su Postgres, incluse le prenotazioni concorrenti.
+- `fe/`: React Router, client `openapi-fetch` con tipi generati, 10 pagine operative.
+- `docker-compose.yml`, `.env.example`, `.gitignore` (`.env` escluso), `README.md`.
