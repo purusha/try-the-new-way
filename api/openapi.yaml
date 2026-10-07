@@ -590,8 +590,9 @@ paths:
       operationId: createReceipt
       summary: Ingresso merci (carico da fornitore)
       description: |
-        Aumenta la giacenza fisica. Per i prodotti `LOT`/`SERIAL` con `requires_expiry` il lotto è obbligatorio;
-        se il lotto è nuovo, con `requires_expiry` la scadenza è obbligatoria. Rifiutato se l'ubicazione supera la capienza.
+        Aumenta la giacenza fisica. Il lotto è obbligatorio per i prodotti `LOT` e per i `SERIAL` con
+        `requires_expiry` (`LOT_REQUIRED`); se il lotto è nuovo e il prodotto ha `requires_expiry`, la scadenza
+        è obbligatoria (`EXPIRY_DATE_REQUIRED`). Rifiutato se l'ubicazione supera la capienza.
         Con `purchase_order_id` aggiorna le quantità ricevute dell'ordine fornitore.
       parameters:
         - $ref: '#/components/parameters/Operator'

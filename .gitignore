@@ -6,3 +6,8 @@ be/target/
 .vscode/*
 !.vscode/extensions.json
 .DS_Store
+
+# Configurazione locale (spec 007): mai segreti nel repository pubblico
+.env
+.env.*
+!.env.example

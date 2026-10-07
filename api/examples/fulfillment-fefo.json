@@ -1,0 +1,178 @@
+{
+  "description": "Evasione dell ordine guidata da FEFO: il sistema preleva prima il lotto L2026-0901B (scad. 2026-11-30) anche se ricevuto dopo L2026-0915A (scad. 2026-12-15). L impegno viene convertito in scarico (quantity_reserved -> quantity_fulfilled). Il secondo esempio mostra un prelievo MANUALE dal lotto a scadenza posteriore, rifiutato con FEFO_VIOLATION finché non si ripete la richiesta con fefo_override: { reason }.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/sales-orders/96c32aa9-fdd4-4a9a-8004-0f12fde62b26/fulfill",
+    "headers": {
+      "X-Operator": "mario.rossi",
+      "Idempotency-Key": "ful-SO-000042"
+    },
+    "body": {
+      "mode": "AUTO",
+      "strategy": "FEFO",
+      "external_ref": "DDT-OUT-2026-0412"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "alerts": [],
+      "created_at": "2026-10-07T08:28:31.695739Z",
+      "customer_name": "Supermercato Rossi S.r.l.",
+      "external_ref": "ECOM-55821",
+      "id": "96c32aa9-fdd4-4a9a-8004-0f12fde62b26",
+      "lines": [
+        {
+          "id": "b59c28c8-0759-453e-84c3-c32d98ab7476",
+          "line_no": 1,
+          "product_id": "559817b0-25f2-4c5f-8bed-fa4cca5ba59c",
+          "product_name": "Latte UHT intero 1L",
+          "quantity_fulfilled": 60,
+          "quantity_open": 0,
+          "quantity_ordered": 60,
+          "quantity_reserved": 0,
+          "sku": "LATTE-UHT-1L"
+        }
+      ],
+      "movements": [
+        {
+          "created_at": "2026-10-07T08:28:35.028504Z",
+          "direction": null,
+          "external_ref": "DDT-OUT-2026-0412",
+          "fefo_override_reason": null,
+          "from_location_code": "A-03-03",
+          "from_location_id": "d21542fb-0ec4-4728-a4df-887fa9711d33",
+          "id": "2b7cd63d-dc9d-402c-b16f-480df7929d9b",
+          "lot_code": "L2026-0901B",
+          "lot_id": "84360f02-eb5e-4fcb-a368-1bd2875f7fdb",
+          "note": null,
+          "number": 11,
+          "occurred_at": "2026-10-07T08:28:35.028504Z",
+          "operation_id": "d9d88712-3259-4cd0-a2f6-1cdb9b1bfe24",
+          "operator": "mario.rossi",
+          "product_id": "559817b0-25f2-4c5f-8bed-fa4cca5ba59c",
+          "purchase_order_id": null,
+          "purchase_order_line_id": null,
+          "purchase_order_number": null,
+          "quantity": 36,
+          "reason_code": "SALES_SHIPMENT",
+          "reversed_by_movement_id": null,
+          "reverses_movement_id": null,
+          "sales_order_id": "96c32aa9-fdd4-4a9a-8004-0f12fde62b26",
+          "sales_order_line_id": "b59c28c8-0759-453e-84c3-c32d98ab7476",
+          "sales_order_number": "SO-000042",
+          "serials": [],
+          "sku": "LATTE-UHT-1L",
+          "to_location_code": null,
+          "to_location_id": null,
+          "type": "OUTBOUND",
+          "warehouse_id": "4081a450-7964-401d-b404-dace657a9e86"
+        },
+        {
+          "created_at": "2026-10-07T08:28:35.028504Z",
+          "direction": null,
+          "external_ref": "DDT-OUT-2026-0412",
+          "fefo_override_reason": null,
+          "from_location_code": "A-03-02",
+          "from_location_id": "fa213d1f-beaf-4c9c-bfc1-d1741bffb5e1",
+          "id": "7679c236-cfbf-4ae4-83a9-3fc46b07594b",
+          "lot_code": "L2026-0915A",
+          "lot_id": "270a0408-4933-4569-992a-d65497bbf34f",
+          "note": null,
+          "number": 12,
+          "occurred_at": "2026-10-07T08:28:35.028504Z",
+          "operation_id": "d9d88712-3259-4cd0-a2f6-1cdb9b1bfe24",
+          "operator": "mario.rossi",
+          "product_id": "559817b0-25f2-4c5f-8bed-fa4cca5ba59c",
+          "purchase_order_id": null,
+          "purchase_order_line_id": null,
+          "purchase_order_number": null,
+          "quantity": 24,
+          "reason_code": "SALES_SHIPMENT",
+          "reversed_by_movement_id": null,
+          "reverses_movement_id": null,
+          "sales_order_id": "96c32aa9-fdd4-4a9a-8004-0f12fde62b26",
+          "sales_order_line_id": "b59c28c8-0759-453e-84c3-c32d98ab7476",
+          "sales_order_number": "SO-000042",
+          "serials": [],
+          "sku": "LATTE-UHT-1L",
+          "to_location_code": null,
+          "to_location_id": null,
+          "type": "OUTBOUND",
+          "warehouse_id": "4081a450-7964-401d-b404-dace657a9e86"
+        }
+      ],
+      "notes": null,
+      "number": "SO-000042",
+      "status": "FULFILLED",
+      "updated_at": "2026-10-07T08:28:35.028504Z",
+      "warehouse_id": "4081a450-7964-401d-b404-dace657a9e86"
+    }
+  },
+  "fefo_violation_example": {
+    "request": {
+      "method": "POST",
+      "path": "/api/v1/operations/shipments",
+      "body": {
+        "warehouse_id": "4081a450-7964-401d-b404-dace657a9e86",
+        "mode": "MANUAL",
+        "lines": [
+          {
+            "product_id": "559817b0-25f2-4c5f-8bed-fa4cca5ba59c",
+            "picks": [
+              {
+                "location_id": "<A-03-02>",
+                "lot_id": "270a0408-4933-4569-992a-d65497bbf34f",
+                "quantity": 10
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "response": {
+      "status": 409,
+      "body": {
+        "code": "FEFO_VIOLATION",
+        "detail": "Il lotto L2026-0915A (scad. 2026-12-15) ha scadenza posteriore al lotto L2026-0901B (scad. 2026-11-30) presente nel magazzino. Ripetere con fefo_override per confermare.",
+        "details": {
+          "earlier_lots": [
+            {
+              "expiry_date": "2026-11-30",
+              "lot_code": "L2026-0901B",
+              "lot_id": "84360f02-eb5e-4fcb-a368-1bd2875f7fdb",
+              "quantity": 36
+            }
+          ],
+          "line": 0,
+          "picked_expiry_date": "2026-12-15",
+          "picked_lot_code": "L2026-0915A",
+          "picked_lot_id": "270a0408-4933-4569-992a-d65497bbf34f",
+          "product_id": "559817b0-25f2-4c5f-8bed-fa4cca5ba59c"
+        },
+        "status": 409,
+        "title": "Violazione FEFO",
+        "type": "urn:warehouse:error:FEFO_VIOLATION"
+      }
+    },
+    "override_request_body": {
+      "warehouse_id": "4081a450-7964-401d-b404-dace657a9e86",
+      "mode": "MANUAL",
+      "fefo_override": {
+        "reason": "Cliente richiede scadenza lunga (accordo commerciale)"
+      },
+      "lines": [
+        {
+          "product_id": "559817b0-25f2-4c5f-8bed-fa4cca5ba59c",
+          "picks": [
+            {
+              "location_id": "<A-03-02>",
+              "lot_id": "270a0408-4933-4569-992a-d65497bbf34f",
+              "quantity": 10
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

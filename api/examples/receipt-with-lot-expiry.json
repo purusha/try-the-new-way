@@ -1,0 +1,71 @@
+{
+  "description": "Carico merce da fornitore con nuovo lotto e data di scadenza, collegato a un ordine fornitore. Risposte reali catturate dallo scenario end-to-end (gli id cambiano a ogni esecuzione).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/operations/receipts",
+    "headers": {
+      "X-Operator": "mario.rossi",
+      "Idempotency-Key": "rcpt-2026-1187"
+    },
+    "body": {
+      "warehouse_id": "4081a450-7964-401d-b404-dace657a9e86",
+      "purchase_order_id": "69bdeefe-eb32-4907-b65b-3c5b009b6c54",
+      "external_ref": "DDT-2026-1187",
+      "lines": [
+        {
+          "product_id": "559817b0-25f2-4c5f-8bed-fa4cca5ba59c",
+          "quantity": 240,
+          "location_id": "fa213d1f-beaf-4c9c-bfc1-d1741bffb5e1",
+          "lot": {
+            "lot_code": "L2026-0915A",
+            "production_date": "2026-09-15",
+            "expiry_date": "2026-12-15"
+          },
+          "purchase_order_line_id": "f53e3eb8-d448-4924-bd94-513ff0c3d6d1"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "alerts": [],
+      "movements": [
+        {
+          "created_at": "2026-10-07T08:28:29.205963Z",
+          "direction": null,
+          "external_ref": "DDT-2026-1187",
+          "fefo_override_reason": null,
+          "from_location_code": null,
+          "from_location_id": null,
+          "id": "d0fc4673-2ff6-419a-a0cf-069f7c9de324",
+          "lot_code": "L2026-0915A",
+          "lot_id": "270a0408-4933-4569-992a-d65497bbf34f",
+          "note": null,
+          "number": 8,
+          "occurred_at": "2026-10-07T08:28:29.205963Z",
+          "operation_id": "72a5d1d6-fef2-45fe-a7c1-de28adedc173",
+          "operator": "mario.rossi",
+          "product_id": "559817b0-25f2-4c5f-8bed-fa4cca5ba59c",
+          "purchase_order_id": "69bdeefe-eb32-4907-b65b-3c5b009b6c54",
+          "purchase_order_line_id": "f53e3eb8-d448-4924-bd94-513ff0c3d6d1",
+          "purchase_order_number": "PO-000002",
+          "quantity": 240,
+          "reason_code": "PURCHASE_RECEIPT",
+          "reversed_by_movement_id": null,
+          "reverses_movement_id": null,
+          "sales_order_id": null,
+          "sales_order_line_id": null,
+          "sales_order_number": null,
+          "serials": [],
+          "sku": "LATTE-UHT-1L",
+          "to_location_code": "A-03-02",
+          "to_location_id": "fa213d1f-beaf-4c9c-bfc1-d1741bffb5e1",
+          "type": "INBOUND",
+          "warehouse_id": "4081a450-7964-401d-b404-dace657a9e86"
+        }
+      ],
+      "operation_id": "72a5d1d6-fef2-45fe-a7c1-de28adedc173"
+    }
+  }
+}
