@@ -8,6 +8,7 @@ Monorepo con:
   - `openapi.yaml`: OpenAPI 3.1
   - `errors.md`: catalogo degli errori
   - `examples/`: esempi di payload
+- `docs/schema-db.html`: guida allo schema dati del BE (tabelle, relazioni, esempi e motivazioni), da aprire nel browser
 - `specs/`: registro datato delle specifiche e delle decisioni (vedi `specs/README.md`)
 
 ## Avvio in sviluppo

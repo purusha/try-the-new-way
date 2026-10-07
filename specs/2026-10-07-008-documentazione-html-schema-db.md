@@ -1,7 +1,7 @@
 # 008 — Documentazione HTML dello schema dati del BE
 
 - **Data:** 2026-10-07
-- **Stato:** Approvata
+- **Stato:** Implementata
 - **Ambito:** BE (documentazione)
 - **Sostituisce / correlata a:** documenta lo schema introdotto da 007
 
