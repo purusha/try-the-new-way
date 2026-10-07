@@ -1,0 +1,8 @@
+# Rust
+be/target/
+
+# Editor / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
